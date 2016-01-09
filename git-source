@@ -1,0 +1,70 @@
+#!/bin/bash
+
+name="$(basename $0)"
+
+function usage {
+  echo "Usage: $name [options]"
+  echo "Options:"
+  echo "  -g URL                   GIT repository (Mandatory). "
+  echo "  -b BRANCH                Git branch."
+  echo "  -d DIRECTORY             Directory where to clone to (Mandatory)."
+  echo -e "  -z                       Delete directory and re-clone.\n"
+  exit
+}
+
+while getopts ":g:b:d:z" opt; do
+  case $opt in
+    g)
+      git_url="$OPTARG"
+      ;;
+    b)
+      git_brn="$OPTARG"
+      ;;
+    d)
+      git_dir="$OPTARG"
+      ;;
+    z)
+      git_raz="1"
+      ;;
+    \?)
+      usage
+      ;;
+  esac
+done
+
+if [ -z "$git_dir" ]; then
+  echo -e "\ngit-dir (-d) is mandatory.\n"
+  usage
+fi
+
+
+if [ ! -z "$git_url" ]; then
+  if [ -z "$git_dir" ]; then
+    echo -e "\ngit-dir (-d) is mandatory with git-url.\n"
+    usage
+  fi
+fi
+
+
+if [ ! -z "$git_raz" ]; then
+  echo "Reset Git!"
+fi
+
+if [ -d "$git_dir" ]; then
+  (cd "$git_dir" && git reset --hard @{u} && git pull)
+else
+  if [ -z "$git_url" ]; then
+    echo -e "\nNo repository to clone and $git_dir does not exist.\n"
+    usage
+    exit 1
+  else
+    git clone "$git_url" "$git_dir"
+  fi
+fi
+
+
+if [ ! -z "$git_brn" ]; then
+  (cd "$git_dir" && git reset --hard @{u} && git checkout "$git_brn")
+fi
+
+(cd "$git_dir" && git reset --hard @{u})

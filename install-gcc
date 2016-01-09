@@ -1,0 +1,65 @@
+#!/bin/bash
+
+# Install / Re-Install gcc for arm and select the oldest one as the primary alternative.
+
+function isArm {
+  if [[ $(/bin/uname -p) == arm* ]]; then
+    return 1
+  else
+    return 0
+  fi
+}
+
+isArm
+if [ $? -eq 1 ]; then 
+  arminstall=1
+else
+  arminstall=0
+fi
+
+
+if [ ${arminstall}  -eq 1 ]; then  
+  tmp_lst="$(apt-cache -n search 'cpp-[0-9]+(\.[0-9]+)+$|cpp-[0-9]$' | awk '{print $1}' | sort)"
+else  
+  tmp_lst="$(apt-cache -n search 'cpp-.*-arm-linux-gnueabihf' | awk '{print $1}' | sort)"
+fi
+
+for i in $tmp_lst; do                                                                     
+  arr=(${i//-/ })
+  ver_lst="${ver_lst} ${arr[1]}"
+done
+ver_lst=${ver_lst%% }
+ver_lst=${ver_lst## }
+
+echo "Found GCC version : ${ver_lst}"
+
+update-alternatives --remove-all arm-linux-gnueabihf-gcc
+
+for i in $ver_lst; do
+
+  if [ ${arminstall}  -eq 1 ]; then
+    apt-get --assume-yes install cpp-${i} gcc-${i} g++-${i}
+  else
+    apt-get --assume-yes install cpp-${i}-arm-linux-gnueabihf gcc-${i}-arm-linux-gnueabihf g++-${i}-arm-linux-gnueabihf
+  fi
+  
+  extra_alt=""
+  if [ -f /usr/bin/arm-linux-gnueabihf-gcc-ar-${i} ]; then
+    extra_alt="${extra_alt} --slave /usr/bin/arm-linux-gnueabihf-gcc-ar arm-linux-gnueabihf-gcc-ar /usr/bin/arm-linux-gnueabihf-gcc-ar-${i}"
+  fi
+  
+  if [ -f /usr/bin/arm-linux-gnueabihf-gcc-nm-${i} ]; then
+    extra_alt="${extra_alt} --slave /usr/bin/arm-linux-gnueabihf-gcc-nm arm-linux-gnueabihf-gcc-nm /usr/bin/arm-linux-gnueabihf-gcc-nm-${i}"
+  fi
+  
+  if [ -f /usr/bin/arm-linux-gnueabihf-gcc-ranlib-${i} ]; then
+    extra_alt="${extra_alt} --slave /usr/bin/arm-linux-gnueabihf-gcc-ranlib arm-linux-gnueabihf-gcc-ranlib /usr/bin/arm-linux-gnueabihf-gcc-ranlib-${i}"
+  fi
+  
+  if [ -f /usr/bin/arm-linux-gnueabihf-gcov-${i} ]; then
+    extra_alt="${extra_alt} --slave /usr/bin/arm-linux-gnueabihf-gcov arm-linux-gnueabihf-gcov /usr/bin/arm-linux-gnueabihf-gcov-${i}"
+  fi
+  
+  update-alternatives --install /usr/bin/arm-linux-gnueabihf-gcc arm-linux-gnueabihf-gcc /usr/bin/arm-linux-gnueabihf-gcc-${i} 60 --slave /usr/bin/arm-linux-gnueabihf-cpp arm-linux-gnueabihf-cpp /usr/bin/arm-linux-gnueabihf-cpp-${i} --slave /usr/bin/arm-linux-gnueabihf-g++ arm-linux-gnueabihf-g++ /usr/bin/arm-linux-gnueabihf-g++-${i} ${extra_alt}
+
+done

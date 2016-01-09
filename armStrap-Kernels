@@ -1,0 +1,314 @@
+#!/usr/bin/env python3
+
+import argparse
+import atexit
+import builtins
+import configparser
+import crypt
+import locale
+import syslog
+import logging
+import os
+import sys
+import subprocess
+import collections 
+import re
+import shutil
+
+from logging.handlers import SysLogHandler
+
+# Check if a file exist
+def checkFile(file):   
+  try:
+    if os.path.isfile(file):
+      writeLog(file + " exist")
+      return True
+    else:
+      writeLog(file + " does not exist")
+      return False
+  except SystemExit:
+    pass
+  except:
+    logging.exception("Caught Exception")
+    sys.exit(os.EX_SOFTWARE)
+
+def checkDirectory(Directory):
+  try:
+    if os.path.exists(Directory):
+      if os.path.isdir(Directory):
+        return(True)
+    return(False)
+  except SystemExit:
+    pass
+  except:
+    logging.exception("Caught Exception")
+    sys.exit(os.EX_SOFTWARE)
+
+    
+# Read a config file
+def readConfig(configFile):
+  try:
+    if checkFile(configFile):
+      writeLog("Reading configuration file " + configFile)
+      config = configparser.ConfigParser()
+      config.sections()
+      config.read(configFile)
+    else:
+      writeLog("Configuration file " + configFile + " does not exist")
+      config = False
+    return config
+  except SystemExit:
+    pass
+  except:
+    logging.exception("Caught Exception")
+    sys.exit(os.EX_SOFTWARE)
+
+# Call an external command
+def runCommand(cmdLine):
+  try:
+    output = subprocess.check_output(cmdLine, shell=True, universal_newlines=True, stderr=subprocess.STDOUT)
+    return [0, output]
+  except subprocess.CalledProcessError as e:
+    return [e.returncode, e.output]
+  except SystemExit:
+    pass
+  except:
+    logging.exception("Caught Exception")
+    sys.exit(os.EX_SOFTWARE)
+
+def writeLog(str):
+  try:
+    logging.warning(str)
+  except SystemExit:
+    pass
+  except:
+    logging.exception("Caught Exception")
+    sys.exit(os.EX_SOFTWARE)
+    
+# List all kernels configuration.
+def showKernels(Kernels):
+  try:
+    print('{:<8} {:<8} {:<70} {:<16}'.format("Type", "CPU", "Git-URL", "Branch"));
+    print('{:-^8} {:-^8} {:-^70} {:-^16}'.format("", "", "", ""));
+    for Kernel in Kernels.sections():  
+      print('{:<8} {:<8} {:<70} {:<16}'.format(Kernels[Kernel]['type'], Kernels[Kernel]['cpu'], Kernels[Kernel]['git'], Kernels[Kernel]['branch']))
+  except SystemExit:
+    pass
+  except:
+    logging.exception("Caught Exception")
+    sys.exit(os.EX_SOFTWARE)
+
+# Update from Git repository.
+def gitUpdate(Kernels, Kernel):
+  try:
+    if checkDirectory(builtins.SrcDir + "/" + Kernels[Kernel]['type']):
+      print("Updating sources for kernel " + Kernel + " (" + Kernels[Kernel]['type'] + ")")
+      return(runCommand("(cd " + builtins.SrcDir + "/" + Kernels[Kernel]['type'] + " && /usr/bin/git pull)"))
+    return [1, "Directory not found"]
+  except SystemExit:
+    pass
+  except:
+    logging.exception("Caught Exception")
+    sys.exit(os.EX_SOFTWARE)
+
+# Switch repository branch.
+def gitBranch(Kernels, Kernel):
+  try:
+    if checkDirectory(builtins.SrcDir + "/" + Kernels[Kernel]['type']):
+      print("Checking out branch " + Kernels[Kernel]['branch'] + " for kernel " + Kernel + " (" + Kernels[Kernel]['type'] + ")")
+      return(runCommand("(cd " + builtins.SrcDir + "/" + Kernels[Kernel]['type'] + " && /usr/bin/git checkout " + Kernels[Kernel]['branch'] + ")"))
+    return [1, "Directory not found"]
+  except SystemExit:
+    pass
+  except:
+    logging.exception("Caught Exception")
+    sys.exit(os.EX_SOFTWARE)
+    
+# Reset to last commit.
+def gitReset(Kernels, Kernel):
+  try:
+    if checkDirectory(builtins.SrcDir + "/" + Kernels[Kernel]['type']):
+      print("Resetting sources for kernel " + Kernel + " (" + Kernels[Kernel]['type'] + ")")
+      return(runCommand("(cd " + builtins.SrcDir + "/" + Kernels[Kernel]['type'] + " && /usr/bin/git reset --hard @{u})"))
+    return [1, "Directory not found"]
+  except SystemExit:
+    pass
+  except:
+    logging.exception("Caught Exception")
+    sys.exit(os.EX_SOFTWARE)
+
+# Clone a repository.    
+def gitClone(Kernels, Kernel):
+  try:
+    if not checkDirectory(builtins.SrcDir + "/" + Kernels[Kernel]['type']):
+      print("Cloning sources for kernel " + + Kernel + " (" + Kernels[Kernel]['type'] + ")")
+      return(runCommand("/usr/bin/git clone " + Kernels[Kernel]['git'] + " " + builtins.SrcDir + "/" + Kernels[Kernel]['type']))
+    return [0, ""]
+  except SystemExit:
+    pass
+  except:
+    logging.exception("Caught Exception")
+    sys.exit(os.EX_SOFTWARE)
+
+# Return the system type.    
+def systemType():
+  try:
+    st = runCommand("/bin/uname -p")
+    if st[0] == 0:
+      return(st[1].splitlines()[0])
+    return(False)
+  except SystemExit:
+    pass
+  except:
+    logging.exception("Caught Exception")
+    sys.exit(os.EX_SOFTWARE)
+
+# Execute Make configured for arm (cross-)compilation.
+def makeCommand(Command, SrcDir = False):
+  try:
+    if SrcDir:
+      Command = "-C " + SrcDir + " " + Command
+    return(runCommand("CC=arm-linux-gnueabihf-gcc KBUILD_DEBARCH=armhf dpkg-architecture -tarm-linux-gnueabihf -c /usr/bin/make ARCH=arm CROSS_COMPILE=arm-linux-gnueabihf- " + Command))
+  except SystemExit:
+    pass
+  except:
+    logging.exception("Caught Exception")
+    sys.exit(os.EX_SOFTWARE)
+
+# Do a distclean in the kernel sources.
+def kernelClean(Kernels, Kernel):
+  try:
+    print("Cleaning sources for kernel" + Kernel + " (" + Kernels[Kernel]['type'] + ")")
+    return(makeCommand("distclean", builtins.SrcDir + "/" + Kernels[Kernel]['type']))
+  except SystemExit:
+    pass
+  except:
+    logging.exception("Caught Exception")
+    sys.exit(os.EX_SOFTWARE)
+
+# Configure the kernel.
+def kernelConfig(Kernels, Kernel):
+  try:
+    kernelcfg = False
+    if 'config' in Kernels[Kernel]:
+      if checkFile(builtins.WorkDir + "/" + Kernels[Kernel]['config']):
+        kernelcfg = Kernels[Kernel]['config']
+    else:
+      if checkFile(builtins.WorkDir + "/armStrap_" + Kernel + "_defconfig"):
+        kernelcfg = "armStrap_" + Kernel + "_defconfig"
+    if kernelcfg:
+       shutil.copy(builtins.WorkDir + "/" + kernelcfg, builtins.SrcDir + "/" + Kernels[Kernel]['type'] + "/arch/arm/configs/")
+    else:
+      kernelcfg = Kernels[Kernel]['cpu'] + "_defconfig"
+    print("Configuring kernel " + Kernel + " using " + kernelcfg)
+    return(makeCommand("EXTRAVERSION=-" + Kernel + " " + kernelcfg, builtins.SrcDir + "/" + Kernels[Kernel]['type']))
+  except SystemExit:
+    pass
+  except:
+    logging.exception("Caught Exception")
+    sys.exit(os.EX_SOFTWARE)
+    
+# Build the kernel sources.
+def kernelMake(Kernels, Kernel, Command = False):
+  try:
+    if Command:
+      Command = "-j" + builtins.Threads + " EXTRAVERSION=-" + Kernel + " " + Command
+      print("Compiling target " + Command + " for kernel" + Kernel + " (" + Kernels[Kernel]['type'] + ")")
+    else:
+      print("Compiling kernel" + Kernel + " (" + Kernels[Kernel]['type'] + ")")
+      Command = "-j" + builtins.Threads + " EXTRAVERSION=-" + Kernel
+    print("Compiling sources for kernel" + Kernel + " (" + Kernels[Kernel]['type'] + ")")
+    return(makeCommand(Command, builtins.SrcDir + "/" + Kernels[Kernel]['type']))
+  except SystemExit:
+    pass
+  except:
+    logging.exception("Caught Exception")
+    sys.exit(os.EX_SOFTWARE)
+
+# Get the kernel version
+def kernelVersion(Kernels, Kernel):
+  try:
+    kv = kernelMake(Kernels, Kernel, "--no-print-directory -s kernelrelease")
+    if kv[0] == 0:
+      return(kv[1].splitlines()[0])
+    return(False)
+  except SystemExit:
+    pass
+  except:
+    logging.exception("Caught Exception")
+    sys.exit(os.EX_SOFTWARE)
+
+# Main program
+def main():
+  version = "1.01"
+  builtins.WorkDir = os.getcwd()
+  builtins.Config = builtins.WorkDir + "/armStrap-Kernels.ini"
+  builtins.SrcDir = builtins.WorkDir + "/src"
+  builtins.Threads = "6"
+  args = sys.argv[1:]
+    
+  parser = argparse.ArgumentParser(description=os.path.basename(sys.argv[0]) +" version " + version + ", (C) 2016 Eddy Beaupré", epilog="See https://github.com/armStrapTools for more informations.", formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+  parser.add_argument("-c", "--config", help="Specify configuration file", action="store", default = builtins.Config, metavar=('FILE'))
+  parser.add_argument("-w", "--workdir", help="Specify work directory", action="store", default = builtins.WorkDir, metavar=('DIRECTORY'))
+  parser.add_argument("-s", "--srcdir", help="Specify sources directory", action="store", default = builtins.SrcDir, metavar=('DIRECTORY'))
+  #parser.add_argument("-g", "--get", help="Get configuration value", action="store", nargs=2, metavar=('SECTION', 'KEY'))
+  #parser.add_argument("-s", "--set", help="Set configuration value", action="store", nargs=3, metavar=('SECTION', 'KEY', 'VALUE'))
+  #parser.add_argument("-p", "--cpuinfo", help="Get CPU information", action="store", nargs="?", default=None, const=True, metavar=('SECTION'))
+  parser.add_argument("-t", "--test", help="Test command", action="store", nargs=1, metavar=('COMMAND'))
+  args = parser.parse_args()
+  
+  if args.test:
+    print("test")
+    
+  if args.workdir:
+    builtins.WorkDir = args.workdir
+    builtins.Config = builtins.WorkDir + "/armStrap-Kernels.ini"
+    builtins.SrcDir = builtins.WorkDir + "/src"
+  
+  if args.config:
+    builtins.Config = args.config
+  
+  if args.srcdir:
+    builtins.SrcDir = args.srcdir
+  
+  Kernels=readConfig(builtins.Config)
+  
+  if not Kernels:
+    print("Config file not found")
+    sys.exit(os.EX_SOFTWARE)
+
+  if not checkDirectory(builtins.WorkDir):
+    print("Work directory not found.")
+    sys.exit(os.EX_SOFTWARE)
+
+  if not checkDirectory(builtins.SrcDir):
+    print("Source directory not found.")
+    sys.exit(os.EX_SOFTWARE)
+  
+  print(gitClone(Kernels, "sun4i"))
+  print(gitReset(Kernels, "sun4i"))
+  print(gitBranch(Kernels, "sun4i"))
+  print(gitUpdate(Kernels, "sun4i"))
+  print(gitReset(Kernels, "sun4i"))
+  print(kernelConfig(Kernels, "sun4i"))
+  print(kernelMake(Kernels, "sun4i"))  
+  print(kernelVersion(Kernels, "sun4i"))
+   
+  #showKernels(Kernels)
+  
+  #for Kernel in Kernels.sections():
+  #  print(kernelClean(Kernels, Kernel))
+  #  print(gitClone(Kernels, Kernel))
+  #  print(gitReset(Kernels, Kernel))
+  #  print(gitBranch(Kernels, Kernel))
+  #  print(gitUpdate(Kernels, Kernel))
+  #  print(gitReset(Kernels, Kernel))
+
+# Main body
+if __name__ == '__main__':
+  syslog.openlog(logoption=syslog.LOG_PID, facility=syslog.LOG_SYSLOG)
+  syslogger = SysLogHandler(address='/dev/log')
+  syslogger.setFormatter(logging.Formatter('%(filename)s[%(process)d] %(levelname)s: %(message)s'))
+  logging.getLogger().addHandler(syslogger)
+  
+  main()
