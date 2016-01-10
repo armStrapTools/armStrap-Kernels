@@ -17,6 +17,9 @@ import shutil
 
 from logging.handlers import SysLogHandler
 
+def writeLog(str):
+  logging.warning(str)
+
 # Check if a file exist
 def checkFile(file):   
   try:
@@ -32,6 +35,7 @@ def checkFile(file):
     logging.exception("Caught Exception")
     sys.exit(os.EX_SOFTWARE)
 
+# Check if a directory exist
 def checkDirectory(Directory):
   try:
     if os.path.exists(Directory):
@@ -43,7 +47,6 @@ def checkDirectory(Directory):
   except:
     logging.exception("Caught Exception")
     sys.exit(os.EX_SOFTWARE)
-
     
 # Read a config file
 def readConfig(configFile):
@@ -63,28 +66,6 @@ def readConfig(configFile):
     logging.exception("Caught Exception")
     sys.exit(os.EX_SOFTWARE)
 
-# Call an external command
-def runCommand(cmdLine):
-  try:
-    output = subprocess.check_output(cmdLine, shell=True, universal_newlines=True, stderr=subprocess.STDOUT)
-    return [0, output]
-  except subprocess.CalledProcessError as e:
-    return [e.returncode, e.output]
-  except SystemExit:
-    pass
-  except:
-    logging.exception("Caught Exception")
-    sys.exit(os.EX_SOFTWARE)
-
-def writeLog(str):
-  try:
-    logging.warning(str)
-  except SystemExit:
-    pass
-  except:
-    logging.exception("Caught Exception")
-    sys.exit(os.EX_SOFTWARE)
-    
 # List all kernels configuration.
 def showKernels(Kernels):
   try:
@@ -141,7 +122,7 @@ def gitReset(Kernels, Kernel):
 def gitClone(Kernels, Kernel):
   try:
     if not checkDirectory(builtins.SrcDir + "/" + Kernels[Kernel]['type']):
-      print("Cloning sources for kernel " + + Kernel + " (" + Kernels[Kernel]['type'] + ")")
+      print("Cloning sources for kernel " + Kernel + " (" + Kernels[Kernel]['type'] + ")")
       return(runCommand("/usr/bin/git clone " + Kernels[Kernel]['git'] + " " + builtins.SrcDir + "/" + Kernels[Kernel]['type']))
     return [0, ""]
   except SystemExit:
@@ -163,13 +144,42 @@ def systemType():
     logging.exception("Caught Exception")
     sys.exit(os.EX_SOFTWARE)
 
-# Execute Make configured for arm (cross-)compilation.
-def makeCommand(Command, SrcDir = False):
+# Exeute an external command, capturing its output.
+def runCommand(Command, verbose = False):
   try:
-    if SrcDir:
-      Command = "-C " + SrcDir + " " + Command
-    return(runCommand("CC=arm-linux-gnueabihf-gcc KBUILD_DEBARCH=armhf dpkg-architecture -tarm-linux-gnueabihf -c /usr/bin/make ARCH=arm CROSS_COMPILE=arm-linux-gnueabihf- " + Command))
-  except SystemExit:
+    p = subprocess.Popen(Command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, universal_newlines=True, bufsize=1, shell=True)
+    log = ""
+    while(True):
+      retcode = p.poll()
+      line = p.stdout.readline()
+      log = log + line
+      if verbose:
+        sys.stdout.write(line)
+      if retcode is not None:
+        break
+    return [retcode, log]
+  except subprocess.CalledProcessError as e:
+    return [e.returncode, e.output]
+  except SystemExit:  
+    pass
+  except:
+    logging.exception("Caught Exception")
+    sys.exit(os.EX_SOFTWARE)
+
+# Execute a make command in an arm build ready environment
+def makeCommand(Kernels, Kernel, Command = False, verbose = True, quiet = False):
+  try:
+    if quiet:
+      quiet = " --no-print-directory -s"
+    else:
+      quiet = ""
+    if Command:
+      return(runCommand("CC=arm-linux-gnueabihf-gcc KBUILD_DEBARCH=armhf /usr/bin/dpkg-architecture --host-type arm-linux-gnueabihf --command /usr/bin/make ARCH=arm CROSS_COMPILE=arm-linux-gnueabihf- -j" + builtins.Threads + quiet +" -C " + builtins.SrcDir + "/" + Kernels[Kernel]['type'] + " " + Command, verbose))
+    else:
+      return(runCommand("CC=arm-linux-gnueabihf-gcc KBUILD_DEBARCH=armhf /usr/bin/dpkg-architecture --host-type arm-linux-gnueabihf --command /usr/bin/make ARCH=arm CROSS_COMPILE=arm-linux-gnueabihf- -j" + builtins.Threads + quiet +" -C " + builtins.SrcDir + "/" + Kernels[Kernel]['type'], verbose))
+  except subprocess.CalledProcessError as e:
+    return [e.returncode, e.output]
+  except SystemExit:  
     pass
   except:
     logging.exception("Caught Exception")
@@ -178,8 +188,8 @@ def makeCommand(Command, SrcDir = False):
 # Do a distclean in the kernel sources.
 def kernelClean(Kernels, Kernel):
   try:
-    print("Cleaning sources for kernel" + Kernel + " (" + Kernels[Kernel]['type'] + ")")
-    return(makeCommand("distclean", builtins.SrcDir + "/" + Kernels[Kernel]['type']))
+    print("Cleaning sources for kernel " + Kernel + " (" + Kernels[Kernel]['type'] + ")")
+    return(makeCommand(Kernels, Kernel, "distclean"))
   except SystemExit:
     pass
   except:
@@ -201,7 +211,7 @@ def kernelConfig(Kernels, Kernel):
     else:
       kernelcfg = Kernels[Kernel]['cpu'] + "_defconfig"
     print("Configuring kernel " + Kernel + " using " + kernelcfg)
-    return(makeCommand("EXTRAVERSION=-" + Kernel + " " + kernelcfg, builtins.SrcDir + "/" + Kernels[Kernel]['type']))
+    return(makeCommand(Kernels, Kernel, kernelcfg))
   except SystemExit:
     pass
   except:
@@ -211,14 +221,7 @@ def kernelConfig(Kernels, Kernel):
 # Build the kernel sources.
 def kernelMake(Kernels, Kernel, Command = False):
   try:
-    if Command:
-      Command = "-j" + builtins.Threads + " EXTRAVERSION=-" + Kernel + " " + Command
-      print("Compiling target " + Command + " for kernel" + Kernel + " (" + Kernels[Kernel]['type'] + ")")
-    else:
-      print("Compiling kernel" + Kernel + " (" + Kernels[Kernel]['type'] + ")")
-      Command = "-j" + builtins.Threads + " EXTRAVERSION=-" + Kernel
-    print("Compiling sources for kernel" + Kernel + " (" + Kernels[Kernel]['type'] + ")")
-    return(makeCommand(Command, builtins.SrcDir + "/" + Kernels[Kernel]['type']))
+    return(makeCommand(Kernels, Kernel, Command))
   except SystemExit:
     pass
   except:
@@ -228,9 +231,7 @@ def kernelMake(Kernels, Kernel, Command = False):
 # Get the kernel version
 def kernelVersion(Kernels, Kernel):
   try:
-    kv = kernelMake(Kernels, Kernel, "--no-print-directory -s kernelrelease")
-    if kv[0] == 0:
-      return(kv[1].splitlines()[0])
+    return(makeCommand(Kernels, Kernel, "kernelrelease", Verbose = False, quiet = True))
     return(False)
   except SystemExit:
     pass
@@ -244,7 +245,7 @@ def main():
   builtins.WorkDir = os.getcwd()
   builtins.Config = builtins.WorkDir + "/armStrap-Kernels.ini"
   builtins.SrcDir = builtins.WorkDir + "/src"
-  builtins.Threads = "6"
+  builtins.Threads = "12"
   args = sys.argv[1:]
     
   parser = argparse.ArgumentParser(description=os.path.basename(sys.argv[0]) +" version " + version + ", (C) 2016 Eddy Beaupré", epilog="See https://github.com/armStrapTools for more informations.", formatter_class=argparse.ArgumentDefaultsHelpFormatter)
@@ -290,10 +291,12 @@ def main():
   print(gitBranch(Kernels, "sun4i"))
   print(gitUpdate(Kernels, "sun4i"))
   print(gitReset(Kernels, "sun4i"))
+
+  print(kernelClean(Kernels, "sun4i"))
   print(kernelConfig(Kernels, "sun4i"))
   print(kernelMake(Kernels, "sun4i"))  
   print(kernelVersion(Kernels, "sun4i"))
-   
+  
   #showKernels(Kernels)
   
   #for Kernel in Kernels.sections():
