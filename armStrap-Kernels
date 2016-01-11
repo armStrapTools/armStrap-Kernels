@@ -226,6 +226,7 @@ def kernelConfig(Kernels, Kernel):
     logging.exception("Caught Exception")
     sys.exit(os.EX_SOFTWARE)
     
+# Modify the default debian packager to include a version in the firmware and libc package.
 def patchBuildScript(Kernels, Kernel):
   try:
     if checkFile(builtins.SrcDir + "/" + Kernels[Kernel]['type'] + "/scripts/package/builddeb.armstrap_patched"):
@@ -245,6 +246,7 @@ def patchBuildScript(Kernels, Kernel):
     logging.exception("Caught Exception")
     sys.exit(os.EX_SOFTWARE)
 
+# Restore the default debian packager.
 def restoreBuildScript(Kernels, Kernel):
   try:
     if checkFile(builtins.SrcDir + "/" + Kernels[Kernel]['type'] + "/scripts/package/builddeb.armstrap_patched"):
@@ -271,7 +273,7 @@ def kernelVersion(Kernels, Kernel):
     logging.exception("Caught Exception")
     sys.exit(os.EX_SOFTWARE)
 
-
+# Build virtual packages.
 def makeVirtualPackages(Kernels, Kernel):
   try:
     if 'version_prefix' in Kernels[Kernel]:
@@ -279,7 +281,7 @@ def makeVirtualPackages(Kernels, Kernel):
     else:
       version=Kernel.lower()
     print(builtins.WorkDir + "/mkvirtual -t " + builtins.WorkDir + " -s " + builtins.WorkDir + " -b " + builtins.SrcURL + " -h armhf -k " + version + " -d " + builtins.SrcDir)
-    return(runCommand( builtins.WorkDir + "/mkvirtual -t " + builtins.WorkDir + " -s " + builtins.WorkDir + " -b " + builtins.SrcURL + " -h armhf -k " + version + " -d " + builtins.SrcDir + "/" + Kernels[Kernel]['type'], verbose = True))
+    return(runCommand( builtins.WorkDir + "/mkvirtual -t " + builtins.WorkDir + " -s " + builtins.WorkDir + " -b " + builtins.SrcURL + " -h armhf -k " + version + " -d " + builtins.SrcDir + "/", verbose = True))
   except SystemExit:
     pass
   except:
