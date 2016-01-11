@@ -35,24 +35,14 @@ linux_kernel=$(basename `ls -A ${pkg_path}/linux-image-*-${kernel_version}*_armh
 linux_headers=$(basename `ls -A ${pkg_path}/linux-headers-*-${kernel_version}*_armhf.deb  2> /dev/null` 2> /dev/null)
 linux_firmware=$(basename `ls -A ${pkg_path}/linux-firmware-image-*-${kernel_version}*_armhf.deb 2> /dev/null ` 2> /dev/null)
 
-echo "linux_kernel: $linux_kernel"
-echo "linux_headers: $linux_headers"
-echo "linux_firmware; $linux_firmware"
-
-linux_kernel_pkg=$(dpkg-deb -I ${pkg_path}/${linux_kernel} | grep Package: | awk '{print $2}')
-linux_headers_pkg=$(dpkg-deb -I ${pkg_path}/${linux_headers} | grep Package: | awk '{print $2}')
-linux_firmware_pkg=$(dpkg-deb -I ${pkg_path}/${linux_firmware} | grep Package: | awk '{print $2}')
-
-echo "linux_kernel_pkg ${linux_kernel_pkg}"
-echo "linux_headers_pkg ${linux_headers_pkg}"
-echo "linux_firmware_pkg ${linux_firmware_pkg}"
+linux_kernel_pkg=$(/usr/bin/dpkg-deb -I ${pkg_path}/${linux_kernel} | grep Package: | awk '{print $2}')
+linux_headers_pkg=$(/usr/bin/dpkg-deb -I ${pkg_path}/${linux_headers} | grep Package: | awk '{print $2}')
+linux_firmware_pkg=$(/usr/bin/dpkg-deb -I ${pkg_path}/${linux_firmware} | grep Package: | awk '{print $2}')
 
 package_version="$(date +%Y%j%H%M)"
 package_build="$(date +%S)"
 
 linux_version="$package_version.$package_build"
-
-echo "linux_version $linux_version"
 
 armstrap_linux_headers="${linux_headers_pkg}"
 armstrap_linux_headers_name="linux-headers-${kernel_version}"

@@ -270,7 +270,22 @@ def kernelVersion(Kernels, Kernel):
   except:
     logging.exception("Caught Exception")
     sys.exit(os.EX_SOFTWARE)
-    
+
+
+def makeVirtualPackages(Kernels, Kernel):
+  try:
+    if 'version_prefix' in Kernels[Kernel]:
+      version=Kernels[Kernel]['version_prefix'].lower() + Kernel.lower()
+    else:
+      version=Kernel.lower()
+    print(builtins.WorkDir + "/mkvirtual -t " + builtins.WorkDir + " -s " + builtins.WorkDir + " -b " + builtins.SrcURL + " -h armhf -k " + version + " -d " + builtins.SrcDir)
+    return(runCommand( builtins.WorkDir + "/mkvirtual -t " + builtins.WorkDir + " -s " + builtins.WorkDir + " -b " + builtins.SrcURL + " -h armhf -k " + version + " -d " + builtins.SrcDir + "/" + Kernels[Kernel]['type'], verbose = True))
+  except SystemExit:
+    pass
+  except:
+    logging.exception("Caught Exception")
+    sys.exit(os.EX_SOFTWARE)
+      
 # Clone / Update and Build kernel Packages.
 def buildKernel(Kernels, Kernel):
   try:
@@ -419,10 +434,11 @@ def main():
   builtins.WorkDir = os.getcwd()
   builtins.Config = builtins.WorkDir + "/armStrap-Kernels.ini"
   builtins.SrcDir = builtins.WorkDir + "/src"
+  builtins.SrcURL = "https://github.com/armStrapTools"
   builtins.Threads = "12"
   args = sys.argv[1:]
     
-  parser = argparse.ArgumentParser(description=os.path.basename(sys.argv[0]) +" version " + version + ", (C) 2016 Eddy Beaupré", epilog="See https://github.com/armStrapTools for more informations.", formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+  parser = argparse.ArgumentParser(description=os.path.basename(sys.argv[0]) +" version " + version + ", (C) 2016 Eddy Beaupré", epilog="See " + builtins.SrcURL + " for more informations.", formatter_class=argparse.ArgumentDefaultsHelpFormatter)
   parser.add_argument("-c", "--config", help="Specify configuration file", action="store", default = builtins.Config, metavar=('FILE'))
   parser.add_argument("-w", "--workdir", help="Specify work directory", action="store", default = builtins.WorkDir, metavar=('DIRECTORY'))
   parser.add_argument("-s", "--srcdir", help="Specify sources directory", action="store", default = builtins.SrcDir, metavar=('DIRECTORY'))
@@ -460,16 +476,17 @@ def main():
     print("Source directory not found.")
     sys.exit(os.EX_SOFTWARE)
   
-   
-  result = buildKernel(Kernels, "sun4i")
+  makeVirtualPackages(Kernels, "sun4i")
   
-  if len(result) >= 3:
-    if result[0]:
-      print("Success")
-    else:
-      print("Failure : %d" % result[1])
-  else:
-    print("General Failure")
+  #result = buildKernel(Kernels, "sun4i")
+  
+  #if len(result) >= 3:
+  #  if result[0]:
+  #    print("Success")
+  #  else:
+  #    print("Failure : %d" % result[1])
+  #else:
+  #  print("General Failure")
   
 #  print(kernelClean(Kernels, "sun4i"))
 #  print(gitClone(Kernels, "sun4i"))
