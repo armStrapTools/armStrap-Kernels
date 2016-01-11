@@ -1,0 +1,206 @@
+#!/bin/bash
+
+set -e
+
+while getopts ":n:v:u:b:B:p:a:h:l:d:D:c:s:S:P:F" opt; do
+  case $opt in
+    n)
+      if [[ ${OPTARG,,} =~ ^@ ]]; then
+        package_name="$(cat ${OPTARG:1})"
+      else
+        package_name="${OPTARG,,}"
+      fi
+      ;;
+    v)
+      if [[ ${OPTARG,,} =~ ^@ ]]; then
+        package_version="$(cat ${OPTARG:1})"
+      else
+        package_version="${OPTARG}"
+      fi
+      ;;
+    a)
+      package_architecture="${OPTARG}"
+      ;;
+    u)
+      package_url="${OPTARG}"
+      ;;
+    b)
+      build_dir="$(realpath ${OPTARG%/})"
+      ;;
+    B)
+      if [[ ${OPTARG,,} =~ ^@ ]]; then
+        build_number="$(cat ${OPTARG:1})"
+      else
+        build_number="${OPTARG}"
+      fi
+      ;;
+    p)
+      build_prefix="${OPTARG}"
+      ;;
+    h)
+      build_host="${OPTARG}"
+      ;;
+    l)
+      package_description="${OPTARG}"
+      ;;
+    d)
+      package_depends="${OPTARG}"
+      ;;
+    D)
+      package_suggest="${OPTARG}"
+      ;;
+    c)
+      package_conflicts="${OPTARG}"
+      ;;
+    s)
+      package_source="${OPTARG}"
+      ;;
+    S)
+      package_section="${OPTARG}"
+      ;;
+    P)
+      package_priority="${OPTARG}"
+      ;;
+    F)
+      package_fullname="1"
+      ;;
+    \?)
+      echo "Usage!"
+      exit 0
+      ;;
+    :)
+      printf "Option -%s requires an argument.\n\n" "${OPTARG}"
+      exit 1
+    ;;
+  esac
+done
+
+if ! [ -z "${package_fullname}" ]; then
+  package_fullname="${package_name}-${package_version}"
+else
+  package_fullname="${package_name}"
+fi
+
+if [ -z "${package_source}" ]; then
+  package_source="${package_fullname}"
+fi
+
+if [ -z "${package_section}" ]; then
+  package_section="admin"
+fi
+
+if [ -z "${package_priority}" ]; then
+  package_priority="optional"
+fi
+
+if [ -z "${package_architecture}" ]; then
+  package_architecture="any"
+fi
+
+if [ -z "${build_number}" ]; then
+  build_number=1
+fi
+
+function create_package {
+	local package_arch=$(dpkg --print-architecture)
+
+	if ! [ -d "${build_dir}${build_prefix}/share/doc/${package_fullname}" ]; then
+		mkdir -p ${build_dir}${build_prefix}/share/doc/${package_fullname}/
+	fi
+	
+	if ! [ -d "${build_dir}/DEBIAN/" ]; then
+		mkdir -p ${build_dir}/DEBIAN/
+	fi
+	
+	cp debian/copyright "${build_dir}${build_prefix}/share/doc/${package_fullname}/"
+	cp debian/changelog "${build_dir}${build_prefix}/share/doc/${package_fullname}/changelog.Debian"
+	gzip -9 -f "${build_dir}${build_prefix}/share/doc/${package_fullname}/changelog.Debian"
+	sh -c "cd '${build_dir}'; find . -type f ! -path './DEBIAN/*' -printf '%P\0' | xargs -r0 md5sum > DEBIAN/md5sums"
+
+	chown -R root:root "${build_dir}"
+	chmod -R go-w "${build_dir}"
+	
+	case "${build_host}" in
+		arm-linux-gnueabihf)
+			package_arch=armhf
+			;;
+	esac
+	
+	dpkg-gencontrol -DArchitecture=${package_arch} -p${package_fullname} -P"${build_dir}"
+	dpkg --build "${build_dir}" .	
+}
+
+function create_changelog {
+  if ! [ -d debian ]; then
+    mkdir -p debian
+  fi
+
+  cat <<EOF > debian/changelog
+${package_source} (${package_version}-${build_number}) unstable; urgency=low
+
+  * ${package_source}, version ${package_version}.
+
+ -- ${DEBFULLNAME} <${DEBEMAIL}>  $(date -R)
+EOF
+}
+
+function create_copyright {
+  if ! [ -d debian ]; then
+    mkdir -p debian
+  fi
+
+  cat <<EOF > debian/copyright
+Format: http://www.debian.org/doc/packaging-manuals/copyright-format/1.0
+Upstream-Name: ${package_fullname}
+Upstream-Contact: ${DEBFULLNAME} <${DEBEMAIL}>
+Source: ${package_url}
+
+Files: *
+Copyright: ${DEBFULLNAME} <${DEBEMAIL}>
+License: GPL-2+
+ This package is free software; you can redistribute it and/or modify
+ it under the terms of the GNU General Public License as published by
+ the Free Software Foundation; either version 2 of the License, or
+ (at your option) any later version.
+ .
+ This package is distributed in the hope that it will be useful,
+ but WITHOUT ANY WARRANTY; without even the implied warranty of
+ MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ GNU General Public License for more details.
+ .
+ You should have received a copy of the GNU General Public License
+ along with this program. If not, see <http://www.gnu.org/licenses/>.
+ .
+ On Debian systems, the complete text of the GNU General
+ Public License can be found in "/usr/share/common-licenses/GPL-2".
+EOF
+}
+
+function create_control {
+  if ! [ -d debian ]; then
+    mkdir -p debian
+  fi
+
+  cat <<EOF > debian/control
+Source: ${package_source}
+Section: ${package_section}
+Priority: ${package_priority}
+Maintainer: ${DEBFULLNAME} <${DEBEMAIL}>
+Standards-Version: ${package_version}
+Homepage: ${package_url}
+
+Package: ${package_fullname}
+Provides: ${package_name}, ${package_name}-${package_version}
+Suggests: ${package_suggest}
+Depends: ${package_depends}
+Conflicts: ${package_conflicts}
+Architecture: ${package_architecture}
+Description: ${package_name}, version ${package_version}
+ ${package_description}
+EOF
+}
+
+create_changelog
+create_copyright
+create_control
+create_package

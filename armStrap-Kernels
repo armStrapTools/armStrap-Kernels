@@ -110,7 +110,7 @@ def gitReset(Kernels, Kernel):
   try:
     if checkDirectory(builtins.SrcDir + "/" + Kernels[Kernel]['type']):
       print("Resetting sources for kernel " + Kernel + " (" + Kernels[Kernel]['type'] + ")")
-      return(runCommand("(cd " + builtins.SrcDir + "/" + Kernels[Kernel]['type'] + " && /usr/bin/git reset --hard @{u})"))
+      return(runCommand("(cd " + builtins.SrcDir + "/" + Kernels[Kernel]['type'] + " && /usr/bin/git fetch origin && /usr/bin/git reset --hard origin/" + Kernels[Kernel]['branch'] + " && /usr/bin/git clean -f -x -d)"))
     return [1, "Directory not found"]
   except SystemExit:
     pass
@@ -123,6 +123,7 @@ def gitClone(Kernels, Kernel):
   try:
     if not checkDirectory(builtins.SrcDir + "/" + Kernels[Kernel]['type']):
       print("Cloning sources for kernel " + Kernel + " (" + Kernels[Kernel]['type'] + ")")
+      print("/usr/bin/git clone " + Kernels[Kernel]['git'] + " " + builtins.SrcDir + "/" + Kernels[Kernel]['type'])
       return(runCommand("/usr/bin/git clone " + Kernels[Kernel]['git'] + " " + builtins.SrcDir + "/" + Kernels[Kernel]['type']))
     return [0, ""]
   except SystemExit:
@@ -145,7 +146,7 @@ def systemType():
     sys.exit(os.EX_SOFTWARE)
 
 # Exeute an external command, capturing its output.
-def runCommand(Command, verbose = False):
+def runCommand(Command, verbose = True):
   try:
     p = subprocess.Popen(Command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, universal_newlines=True, bufsize=1, shell=True)
     log = ""
@@ -169,14 +170,21 @@ def runCommand(Command, verbose = False):
 # Execute a make command in an arm build ready environment
 def makeCommand(Kernels, Kernel, Command = False, verbose = True, quiet = False):
   try:
-    if quiet:
-      quiet = " --no-print-directory -s"
-    else:
-      quiet = ""
-    if Command:
-      return(runCommand("CC=arm-linux-gnueabihf-gcc KBUILD_DEBARCH=armhf /usr/bin/dpkg-architecture --host-type arm-linux-gnueabihf --command /usr/bin/make ARCH=arm CROSS_COMPILE=arm-linux-gnueabihf- -j" + builtins.Threads + quiet +" -C " + builtins.SrcDir + "/" + Kernels[Kernel]['type'] + " " + Command, verbose))
-    else:
-      return(runCommand("CC=arm-linux-gnueabihf-gcc KBUILD_DEBARCH=armhf /usr/bin/dpkg-architecture --host-type arm-linux-gnueabihf --command /usr/bin/make ARCH=arm CROSS_COMPILE=arm-linux-gnueabihf- -j" + builtins.Threads + quiet +" -C " + builtins.SrcDir + "/" + Kernels[Kernel]['type'], verbose))
+    if checkDirectory(builtins.SrcDir + "/" + Kernels[Kernel]['type']):
+      if quiet:
+        quiet = " --no-print-directory -s"
+      else:
+        quiet = ""
+      if 'version_prefix' in Kernels[Kernel]:
+        extraversion="EXTRAVERSION=-" + Kernels[Kernel]['version_prefix'].lower() + Kernel.lower()
+      else:
+        extraversion="EXTRAVERSION=-" + Kernel.lower()
+      if Command:
+        print("Executing make " + Command + " for kernel " + Kernel + " (" + Kernels[Kernel]['type'] + ")")
+        return(runCommand("CC=arm-linux-gnueabihf-gcc KBUILD_DEBARCH=armhf /usr/bin/dpkg-architecture --host-type arm-linux-gnueabihf --command /usr/bin/make ARCH=arm CROSS_COMPILE=arm-linux-gnueabihf- " + extraversion + " -j" + builtins.Threads + quiet +" -C " + builtins.SrcDir + "/" + Kernels[Kernel]['type'] + " " + Command, verbose))
+      else:
+        print("Executing make for kernel " + Kernel + " (" + Kernels[Kernel]['type'] + ")")
+        return(runCommand("CC=arm-linux-gnueabihf-gcc KBUILD_DEBARCH=armhf /usr/bin/dpkg-architecture --host-type arm-linux-gnueabihf --command /usr/bin/make ARCH=arm CROSS_COMPILE=arm-linux-gnueabihf- " + extraversion + " -j" + builtins.Threads + quiet +" -C " + builtins.SrcDir + "/" + Kernels[Kernel]['type'], verbose))
   except subprocess.CalledProcessError as e:
     return [e.returncode, e.output]
   except SystemExit:  
@@ -218,10 +226,32 @@ def kernelConfig(Kernels, Kernel):
     logging.exception("Caught Exception")
     sys.exit(os.EX_SOFTWARE)
     
-# Build the kernel sources.
-def kernelMake(Kernels, Kernel, Command = False):
+def patchBuildScript(Kernels, Kernel):
   try:
-    return(makeCommand(Kernels, Kernel, Command))
+    if checkFile(builtins.SrcDir + "/" + Kernels[Kernel]['type'] + "/scripts/package/builddeb.armstrap_patched"):
+      return([0, ""])
+      os.remove(builtins.SrcDir + "/" + Kernels[Kernel]['type'] + "/scripts/package/builddeb.armstrap_patched")
+    shutil.copy(builtins.SrcDir + "/" + Kernels[Kernel]['type'] + "/scripts/package/builddeb", builtins.SrcDir + "/" + Kernels[Kernel]['type'] + "/scripts/package/builddeb.armstrap_patched")
+    result = runCommand("/bin/sed -i 's/^libc_headers_packagename=linux-libc-dev.*/libc_headers_packagename=linux-libc-dev-$version/' " +  builtins.SrcDir + "/" + Kernels[Kernel]['type'] + "/scripts/package/builddeb", verbose = False)
+    if result[0] != 0:
+      return(result)
+    result = runCommand("/bin/sed -i 's/^fwpackagename=linux-firmware-image.*/fwpackagename=linux-firmware-image-$version/' " +  builtins.SrcDir + "/" + Kernels[Kernel]['type'] + "/scripts/package/builddeb", verbose = False)
+    if result[0] != 0:
+      return(result)
+    return([0, ""])
+  except SystemExit:
+    pass
+  except:
+    logging.exception("Caught Exception")
+    sys.exit(os.EX_SOFTWARE)
+
+def restoreBuildScript(Kernels, Kernel):
+  try:
+    if checkFile(builtins.SrcDir + "/" + Kernels[Kernel]['type'] + "/scripts/package/builddeb.armstrap_patched"):
+      os.remove(builtins.SrcDir + "/" + Kernels[Kernel]['type'] + "/scripts/package/builddeb")
+      shutil.copy(builtins.SrcDir + "/" + Kernels[Kernel]['type'] + "/scripts/package/builddeb.armstrap_patched", builtins.SrcDir + "/" + Kernels[Kernel]['type'] + "/scripts/package/builddeb")
+      os.remove(builtins.SrcDir + "/" + Kernels[Kernel]['type'] + "/scripts/package/builddeb.armstrap_patched")
+    return([0, ""])
   except SystemExit:
     pass
   except:
@@ -231,13 +261,157 @@ def kernelMake(Kernels, Kernel, Command = False):
 # Get the kernel version
 def kernelVersion(Kernels, Kernel):
   try:
-    return(makeCommand(Kernels, Kernel, "kernelrelease", Verbose = False, quiet = True))
+    kv = makeCommand(Kernels, Kernel, "kernelrelease", Verbose = False, quiet = True)
+    if len(kv) > 1:
+      return(kv[1])
     return(False)
   except SystemExit:
     pass
   except:
     logging.exception("Caught Exception")
     sys.exit(os.EX_SOFTWARE)
+    
+# Clone / Update and Build kernel Packages.
+def buildKernel(Kernels, Kernel):
+  try:
+    log = ""
+    
+    #
+    # Clean and clone / pull
+    #
+    
+    result = kernelClean(Kernels, Kernel)
+    if len(result) > 1:
+      log = log + result[1]
+      if  result[0] != 0:
+        return([False, result[0], log])
+    else:
+      if result[0]:
+        return([False, result[0], log])
+      else:
+        return([False, False, log])
+    
+    result = gitClone(Kernels, Kernel)
+    if len(result) > 1:
+      log = log + result[1]
+      if  result[0] != 0:
+        return([False, result[0], log])
+    else:
+      if result[0]:
+        return([False, result[0], log])
+      else:
+        return([False, False, log])
+    
+    result = gitBranch(Kernels, Kernel)
+    if len(result) > 1:
+      log = log + result[1]
+      if  result[0] != 0:
+        return([False, result[0], log])
+    else:
+      if result[0]:
+        return([False, result[0], log])
+      else:
+        return([False, False, log])
+    
+    result = gitReset(Kernels, Kernel)
+    if len(result) > 1:
+      log = log + result[1]
+      if  result[0] != 0:
+        return([False, result[0], log])
+    else:
+      if result[0]:
+        return([False, result[0], log])
+      else:
+        return([False, False, log])
+    
+    if len(result) > 1:
+      log = log + result[1]
+      if  result[0] != 0:
+        return([False, result[0], log])
+    else:
+      if result[0]:
+        return([False, result[0], log])
+      else:
+        return([False, False, log])
+    
+    result = gitUpdate(Kernels, Kernel)
+    if len(result) > 1:
+      log = log + result[1]
+      if  result[0] != 0:
+        return([False, result[0], log])
+    else:
+      if result[0]:
+        return([False, result[0], log])
+      else:
+        return([False, False, log])
+    
+    #
+    # Build the Kernel packages
+    #
+    
+    result = kernelClean(Kernels, Kernel)
+    if len(result) > 1:
+      log = log + result[1]
+      if  result[0] != 0:
+        return([False, result[0], log])
+    else:
+      if result[0]:
+        return([False, result[0], log])
+      else:
+        return([False, False, log])
+    
+    result = kernelConfig(Kernels, Kernel)
+    if len(result) > 1:
+      log = log + result[1]
+      if  result[0] != 0:
+        return([False, result[0], log])
+    else:
+      if result[0]:
+        return([False, result[0], log])
+      else:
+        return([False, False, log])
+        
+    result = patchBuildScript(Kernels, Kernel)
+    if len(result) > 1:
+      log = log + result[1]
+      if  result[0] != 0:
+        return([False, result[0], log])
+    else:
+      if result[0]:
+        return([False, result[0], log])
+      else:
+        return([False, False, log])    
+    
+    result = makeCommand(Kernels, Kernel, "deb-pkg")
+    if len(result) > 1:
+      log = log + result[1]
+      if  result[0] != 0:
+        return([False, result[0], log])
+    else:
+      if result[0]:
+        return([False, result[0], log])
+      else:
+        return([False, False, log])
+        
+    result = restoreBuildScript(Kernels, Kernel)
+    if len(result) > 1:
+      log = log + result[1]
+      if  result[0] != 0:
+        return([False, result[0], log])
+    else:
+      if result[0]:
+        return([False, result[0], log])
+      else:
+        return([False, False, log])    
+    
+    return([True, 0, log])
+  except SystemExit:
+    pass
+  except:
+    logging.exception("Caught Exception")
+    sys.exit(os.EX_SOFTWARE)
+
+
 
 # Main program
 def main():
@@ -286,24 +460,37 @@ def main():
     print("Source directory not found.")
     sys.exit(os.EX_SOFTWARE)
   
-  print(gitClone(Kernels, "sun4i"))
-  print(gitReset(Kernels, "sun4i"))
-  print(gitBranch(Kernels, "sun4i"))
-  print(gitUpdate(Kernels, "sun4i"))
-  print(gitReset(Kernels, "sun4i"))
-
-  print(kernelClean(Kernels, "sun4i"))
-  print(kernelConfig(Kernels, "sun4i"))
-  print(kernelMake(Kernels, "sun4i"))  
-  print(kernelVersion(Kernels, "sun4i"))
+   
+  result = buildKernel(Kernels, "sun4i")
+  
+  if len(result) >= 3:
+    if result[0]:
+      print("Success")
+    else:
+      print("Failure : %d" % result[1])
+  else:
+    print("General Failure")
+  
+#  print(kernelClean(Kernels, "sun4i"))
+#  print(gitClone(Kernels, "sun4i"))
+#  print(gitBranch(Kernels, "sun4i"))
+#  print(gitReset(Kernels, "sun4i"))
+#  print(gitUpdate(Kernels, "sun4i"))
+  
+#  print(kernelClean(Kernels, "sun4i"))
+#  print(kernelConfig(Kernels, "sun4i"))
+#  print(makeCommand(Kernels, "sun4i", "deb-pkg"))  
+#  print(kernelVersion(Kernels, "sun4i"))
   
   #showKernels(Kernels)
   
-  #for Kernel in Kernels.sections():
-  #  print(kernelClean(Kernels, Kernel))
-  #  print(gitClone(Kernels, Kernel))
-  #  print(gitReset(Kernels, Kernel))
-  #  print(gitBranch(Kernels, Kernel))
+#  for Kernel in Kernels.sections():
+#    kernelClean(Kernels, Kernel)
+#    gitClone(Kernels, Kernel)
+#    gitBranch(Kernels, Kernel)
+#    gitReset(Kernels, Kernel)
+#    kernelClean(Kernels, Kernel)
+  
   #  print(gitUpdate(Kernels, Kernel))
   #  print(gitReset(Kernels, Kernel))
 
