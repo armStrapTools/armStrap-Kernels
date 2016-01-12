@@ -14,6 +14,8 @@ import subprocess
 import collections 
 import re
 import shutil
+import glob
+import time
 
 from logging.handlers import SysLogHandler
 
@@ -47,6 +49,21 @@ def checkDirectory(Directory):
   except:
     logging.exception("Caught Exception")
     sys.exit(os.EX_SOFTWARE)
+
+# Create a directory.
+def makeDirectory(Directory):
+  try:
+    if Directory:
+      if not checkDirectory(Directory):
+         os.makedirs(Directory)
+      return(True)
+    return(False)
+  except SystemExit:
+    pass
+  except:
+    logging.exception("Caught Exception")
+    sys.exit(os.EX_SOFTWARE)
+
     
 # Read a config file
 def readConfig(configFile):
@@ -281,7 +298,7 @@ def makeVirtualPackages(Kernels, Kernel):
     else:
       version=Kernel.lower()
     print(builtins.WorkDir + "/mkvirtual -t " + builtins.WorkDir + " -s " + builtins.WorkDir + " -b " + builtins.SrcURL + " -h armhf -k " + version + " -d " + builtins.SrcDir)
-    return(runCommand( builtins.WorkDir + "/mkvirtual -t " + builtins.WorkDir + " -s " + builtins.WorkDir + " -b " + builtins.SrcURL + " -h armhf -k " + version + " -d " + builtins.SrcDir + "/", verbose = True))
+    return(runCommand( builtins.WorkDir + "/mkvirtual -t " + builtins.WorkDir + " -s " + builtins.WorkDir + " -b " + builtins.SrcURL + " -h arm-linux-gnueabihf -k " + version + " -d " + builtins.SrcDir + "/", verbose = True))
   except SystemExit:
     pass
   except:
@@ -291,12 +308,14 @@ def makeVirtualPackages(Kernels, Kernel):
 # Clone / Update and Build kernel Packages.
 def buildKernel(Kernels, Kernel):
   try:
-    log = ""
-    
     #
     # Clean and clone / pull
     #
     
+    log = "#\n# Kernel build for " + Kernel + " started at " + time.strftime("%c") + ".\n#\n\n"
+    print("Kernel build for " + Kernel + " started at " + time.strftime("%c") + ".")
+    
+    log = log + "\n#\n# kernelClean\n#\n\n"
     result = kernelClean(Kernels, Kernel)
     if len(result) > 1:
       log = log + result[1]
@@ -308,6 +327,7 @@ def buildKernel(Kernels, Kernel):
       else:
         return([False, False, log])
     
+    log = log + "\n#\n# gitClone\n#\n\n"
     result = gitClone(Kernels, Kernel)
     if len(result) > 1:
       log = log + result[1]
@@ -319,6 +339,7 @@ def buildKernel(Kernels, Kernel):
       else:
         return([False, False, log])
     
+    log = log + "\n#\n# gitBranch\n#\n\n"
     result = gitBranch(Kernels, Kernel)
     if len(result) > 1:
       log = log + result[1]
@@ -330,6 +351,7 @@ def buildKernel(Kernels, Kernel):
       else:
         return([False, False, log])
     
+    log = log + "\n#\n# gitReset\n#\n\n"
     result = gitReset(Kernels, Kernel)
     if len(result) > 1:
       log = log + result[1]
@@ -341,16 +363,7 @@ def buildKernel(Kernels, Kernel):
       else:
         return([False, False, log])
     
-    if len(result) > 1:
-      log = log + result[1]
-      if  result[0] != 0:
-        return([False, result[0], log])
-    else:
-      if result[0]:
-        return([False, result[0], log])
-      else:
-        return([False, False, log])
-    
+    log = log + "\n#\n# gitUpdate\n#\n\n"
     result = gitUpdate(Kernels, Kernel)
     if len(result) > 1:
       log = log + result[1]
@@ -366,6 +379,7 @@ def buildKernel(Kernels, Kernel):
     # Build the Kernel packages
     #
     
+    log = log + "\n#\n# kernelClean\n#\n\n"
     result = kernelClean(Kernels, Kernel)
     if len(result) > 1:
       log = log + result[1]
@@ -377,6 +391,7 @@ def buildKernel(Kernels, Kernel):
       else:
         return([False, False, log])
     
+    log = log + "\n#\n# kernelConfig\n#\n\n"
     result = kernelConfig(Kernels, Kernel)
     if len(result) > 1:
       log = log + result[1]
@@ -387,7 +402,8 @@ def buildKernel(Kernels, Kernel):
         return([False, result[0], log])
       else:
         return([False, False, log])
-        
+    
+    log = log + "\n#\n# patchBuildScript\n#\n\n"
     result = patchBuildScript(Kernels, Kernel)
     if len(result) > 1:
       log = log + result[1]
@@ -399,6 +415,7 @@ def buildKernel(Kernels, Kernel):
       else:
         return([False, False, log])    
     
+    log = log + "\n#\n# makeCommand deb-pkg\n#\n\n"
     result = makeCommand(Kernels, Kernel, "deb-pkg")
     if len(result) > 1:
       log = log + result[1]
@@ -409,7 +426,8 @@ def buildKernel(Kernels, Kernel):
         return([False, result[0], log])
       else:
         return([False, False, log])
-        
+    
+    log = log + "\n#\n# restoreBuildScript\n#\n\n"
     result = restoreBuildScript(Kernels, Kernel)
     if len(result) > 1:
       log = log + result[1]
@@ -419,7 +437,54 @@ def buildKernel(Kernels, Kernel):
       if result[0]:
         return([False, result[0], log])
       else:
-        return([False, False, log])    
+        return([False, False, log])
+    
+    #
+    # Build the virtual packages
+    #
+    log = log + "\n#\n# makeVirtualPackages\n#\n\n"
+    result = makeVirtualPackages(Kernels, Kernel)
+    if len(result) > 1:
+      log = log + result[1]
+      if  result[0] != 0:
+        return([False, result[0], log])
+    else:
+      if result[0]:
+        return([False, result[0], log])
+      else:
+        return([False, False, log])
+    
+    #
+    # Make sure our package directory exist and move
+    # packages there.
+    #
+    log = log + "\n#\n# makeDirectory\n#\n\n"
+    if not makeDirectory(builtins.PkgDir + "/" + Kernel):
+      return(False, False, log)
+    
+    log = log + "\n#\n# movePackages\n#\n\n"
+    packages = glob.glob(builtins.SrcDir + "/*.deb")
+    for package in packages:
+      log = log +"Moving " + package + " to " + builtins.PkgDir + "/" + Kernel + "\n"
+      print("Moving " + package + " to " + builtins.WorkDir + "/packages/" + Kernel)
+      shutil.move(package, builtins.WorkDir + "/packages/" + Kernel)
+      
+    packages = glob.glob(builtins.WorkDir + "/*.deb")
+    for package in packages:
+      log = log +"Moving " + package + " to " + builtins.PkgDir + "/" + Kernel + "\n"
+      print("Moving " + package + " to " + builtins.WorkDir + "/packages/" + Kernel)
+      shutil.move(package, builtins.WorkDir + "/packages/" + Kernel)
+
+    log = log + "#\n# Kernel build for " + Kernel + " ended at " + time.strftime("%c") + ".\n#\n\n"
+    print("Kernel build for " + Kernel + " ended at " + time.strftime("%c") + ".")
+      
+    #
+    # Write the build log to a file
+    #
+    
+    f = open(builtins.WorkDir + "/packages/" + Kernel + ".log", 'w')
+    f.write(log)
+    f.close()
     
     return([True, 0, log])
   except SystemExit:
@@ -428,43 +493,70 @@ def buildKernel(Kernels, Kernel):
     logging.exception("Caught Exception")
     sys.exit(os.EX_SOFTWARE)
 
-
-
 # Main program
 def main():
   version = "1.01"
-  builtins.WorkDir = os.getcwd()
-  builtins.Config = builtins.WorkDir + "/armStrap-Kernels.ini"
-  builtins.SrcDir = builtins.WorkDir + "/src"
-  builtins.SrcURL = "https://github.com/armStrapTools"
-  builtins.Threads = "12"
+  WorkDir = builtins.WorkDir = os.getcwd()
+  Config = builtins.Config = WorkDir + "/armStrap-Config.ini"
+  Kernels = builtins.Kernels = WorkDir + "/armStrap-Kernels.ini"
+  SrcDir = builtins.SrcDir = WorkDir + "/src"
+  PkgDir = builtins.PkgDir = WorkDir + "/packages"
+  SrcURL = builtins.SrcURL = "https://github.com/armStrapTools"
+  Threads = builtins.Threads = "12"
   args = sys.argv[1:]
     
   parser = argparse.ArgumentParser(description=os.path.basename(sys.argv[0]) +" version " + version + ", (C) 2016 Eddy Beaupré", epilog="See " + builtins.SrcURL + " for more informations.", formatter_class=argparse.ArgumentDefaultsHelpFormatter)
   parser.add_argument("-c", "--config", help="Specify configuration file", action="store", default = builtins.Config, metavar=('FILE'))
+  parser.add_argument("-k", "--kernels", help="Specify kernels configuration file", action="store", default = builtins.Kernels, metavar=('FILE'))
   parser.add_argument("-w", "--workdir", help="Specify work directory", action="store", default = builtins.WorkDir, metavar=('DIRECTORY'))
   parser.add_argument("-s", "--srcdir", help="Specify sources directory", action="store", default = builtins.SrcDir, metavar=('DIRECTORY'))
-  #parser.add_argument("-g", "--get", help="Get configuration value", action="store", nargs=2, metavar=('SECTION', 'KEY'))
-  #parser.add_argument("-s", "--set", help="Set configuration value", action="store", nargs=3, metavar=('SECTION', 'KEY', 'VALUE'))
-  #parser.add_argument("-p", "--cpuinfo", help="Get CPU information", action="store", nargs="?", default=None, const=True, metavar=('SECTION'))
-  parser.add_argument("-t", "--test", help="Test command", action="store", nargs=1, metavar=('COMMAND'))
+  parser.add_argument("-p", "--pkgdir",  help="Specify package directory", action="store", default = builtins.PkgDir, metavar=('DIRECTORY'))
+  parser.add_argument("-t", "--threads", help="Specify number of threads", action="store", default = builtins.Threads, metavar=('DIRECTORY'))
+  parser.add_argument("-v", "--version", action='version', version = os.path.basename(sys.argv[0]) + " version " + version)
   args = parser.parse_args()
   
-  if args.test:
-    print("test")
-    
-  if args.workdir:
+  if args.config != Config:
+    if checkFile(args.config):
+      builtins.Config = args.config
+  
+  if checkFile(builtins.Config):
+    config = readConfig(builtins.Config)
+    if 'KernelsConfig' in config['armstrap-kernels']:
+      builtins.Kernels = config['armstrap-kernels']['KernelsConfig']
+    if 'SourcesDirectory' in config['armstrap-kernels']:
+      builtins.SrcDir = config['armstrap-kernels']['SourcesDirectory']
+    if 'WorkDirectory' in config['armstrap-kernels']:
+      builtins.WorkDir = config['armstrap-kernels']['WorkDirectory']
+    if 'PackagesDirectory' in config['armstrap-kernels']:
+      builtins.PkgDir = config['armstrap-kernels']['PackagesDirectory']
+    if 'MakeThreads' in config['armstrap-kernels']:
+      builtins.Threads = config['armstrap-kernels']['MakeThreads']
+  
+  if args.workdir != WorkDir:
     builtins.WorkDir = args.workdir
-    builtins.Config = builtins.WorkDir + "/armStrap-Kernels.ini"
-    builtins.SrcDir = builtins.WorkDir + "/src"
   
-  if args.config:
-    builtins.Config = args.config
-  
-  if args.srcdir:
+  if args.srcdir != SrcDir:
     builtins.SrcDir = args.srcdir
   
-  Kernels=readConfig(builtins.Config)
+  if args.kernels != Kernels:
+    builtins.Kernels = args.kernels
+    
+  if args.pkgdir != PkgDir:
+    builtins.PkgDir = args.pkgdir
+  
+  if args.threads != Threads:
+    builtins.Threads = args.threads
+  
+  print("Builder Configuration : " + builtins.Config)
+  print("Kernel COnfigurations : " + builtins.Kernels)
+  print("    Sources Directory : " + builtins.SrcDir)
+  print("   Packages Directory : " + builtins.PkgDir)
+  print("       Work Directory : " + builtins.WorkDir)
+  print("    Number of Threads : " + builtins.Threads)
+  
+  sys.exit(0)
+  
+  Kernels=readConfig(builtins.Kernels)
   
   if not Kernels:
     print("Config file not found")
@@ -478,41 +570,16 @@ def main():
     print("Source directory not found.")
     sys.exit(os.EX_SOFTWARE)
   
-  makeVirtualPackages(Kernels, "sun4i")
+  for Kernel in Kernels.sections():
+    result = buildKernel(Kernels, Kernel)
+    if len(result) >= 3:
+      if result[0]:
+        print("Success")
+      else:
+        print("Failure : %d" % result[1])
+    else:
+      print("General Failure")
   
-  #result = buildKernel(Kernels, "sun4i")
-  
-  #if len(result) >= 3:
-  #  if result[0]:
-  #    print("Success")
-  #  else:
-  #    print("Failure : %d" % result[1])
-  #else:
-  #  print("General Failure")
-  
-#  print(kernelClean(Kernels, "sun4i"))
-#  print(gitClone(Kernels, "sun4i"))
-#  print(gitBranch(Kernels, "sun4i"))
-#  print(gitReset(Kernels, "sun4i"))
-#  print(gitUpdate(Kernels, "sun4i"))
-  
-#  print(kernelClean(Kernels, "sun4i"))
-#  print(kernelConfig(Kernels, "sun4i"))
-#  print(makeCommand(Kernels, "sun4i", "deb-pkg"))  
-#  print(kernelVersion(Kernels, "sun4i"))
-  
-  #showKernels(Kernels)
-  
-#  for Kernel in Kernels.sections():
-#    kernelClean(Kernels, Kernel)
-#    gitClone(Kernels, Kernel)
-#    gitBranch(Kernels, Kernel)
-#    gitReset(Kernels, Kernel)
-#    kernelClean(Kernels, Kernel)
-  
-  #  print(gitUpdate(Kernels, Kernel))
-  #  print(gitReset(Kernels, Kernel))
-
 # Main body
 if __name__ == '__main__':
   syslog.openlog(logoption=syslog.LOG_PID, facility=syslog.LOG_SYSLOG)

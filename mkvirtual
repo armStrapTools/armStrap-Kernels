@@ -46,33 +46,39 @@ linux_version="$package_version.$package_build"
 
 armstrap_linux_headers="${linux_headers_pkg}"
 armstrap_linux_headers_name="linux-headers-${kernel_version}"
-armstrap_linux_headers_desc="armStrap ${kernel_version} Linux kernel headers\n  This package will always depend on the latest armStrap ${kernel_version} kernel headers available."
+armstrap_linux_headers_desc="armStrap ${kernel_version} Linux kernel headers
+ This metapackage will always depend on the latest linux
+ headers available."
 
 armstrap_linux_image="${linux_kernel_pkg}, ${linux_firmware_pkg}"
 armstrap_linux_image_name="linux-image-${kernel_version}"
-armstrap_linux_image_desc="armStrap ${kernel_version} Linux kernel image\n  This package will always depend on the latest armStrap ${kernel_version} kernel image available."
+armstrap_linux_image_desc="armStrap ${kernel_version} Linux kernel image
+ This metapackage will always depend on the latest linux
+ image and firmware avalables."
 
 armstrap_linux="${armstrap_linux_image_name} (= ${linux_version}), ${armstrap_linux_headers_name} (= ${linux_version})"
 armstrap_linux_name="linux-${kernel_version}"
-armstrap_linux_desc="Complete armStrap ${kernel_version} Linux kernel and headers\n  This package will always depend on the latest complete armStrap ${kernel_version} Linux kernel and headers."
+armstrap_linux_desc="armStrap ${kernel_version} Linux kernel and headers
+ This metapackage will always depend on the latest linux
+ image, firmware and headers availables."
 
 rm -rf ${abs_srcdir}/build
 rm -rf ${abs_srcdir}/debian
 
 mkdir -p ${abs_srcdir}/build/${armstrap_linux_headers_name}/usr/share/doc/${armstrap_linux_headers_name}
 echo -e ${armstrap_linux_image_desc} > ${abs_srcdir}/build/${armstrap_linux_headers_name}/usr/share/doc/${armstrap_linux_headers_name}/README
-${abs_top_srcdir}/makedeb -n ${armstrap_linux_headers_name} -v ${package_version} -B ${package_build} -s "linux-upstream" -S "devel" -u ${package_bugreport} -b ${abs_srcdir}/build/${armstrap_linux_headers_name} -p /usr -h ${host_alias} -d "${armstrap_linux_headers} " -l "${armstrap_linux_headers_desc}"
+${abs_top_srcdir}/mkdebian -n ${armstrap_linux_headers_name} -v ${package_version} -B ${package_build} -s "linux-upstream" -S "devel" -u ${package_bugreport} -b ${abs_srcdir}/build/${armstrap_linux_headers_name} -p /usr -h ${host_alias} -d "${armstrap_linux_headers} " -l "${armstrap_linux_headers_desc}"
 rm -rf ${abs_srcdir}/build
 rm -rf ${abs_srcdir}/debian
 
 mkdir -p ${abs_srcdir}/build/${armstrap_linux_image_name}/usr/share/doc/${armstrap_linux_image_name}
 echo -e ${armstrap_linux_image_desc} > ${abs_srcdir}/build/${armstrap_linux_image_name}/usr/share/doc/${armstrap_linux_image_name}/README
-${abs_top_srcdir}/makedeb -n ${armstrap_linux_image_name} -v ${package_version} -B ${package_build} -s "linux-upstream" -S "kernel" -u ${package_bugreport} -b ${abs_srcdir}/build/${armstrap_linux_image_name} -p /usr -h ${host_alias} -d "${armstrap_linux_image}" -l "${armstrap_linux_image_desc}"
+${abs_top_srcdir}/mkdebian -n ${armstrap_linux_image_name} -v ${package_version} -B ${package_build} -s "linux-upstream" -S "kernel" -u ${package_bugreport} -b ${abs_srcdir}/build/${armstrap_linux_image_name} -p /usr -h ${host_alias} -d "${armstrap_linux_image}" -l "${armstrap_linux_image_desc}"
 rm -rf ${abs_srcdir}/build
 rm -rf ${abs_srcdir}/debian
 
 mkdir -p ${abs_srcdir}/build/${armstrap_linux_name}/usr/share/doc/${armstrap_linux_name}
 echo -e ${armstrap_linux_desc} > ${abs_srcdir}/build/${armstrap_linux_name}/usr/share/doc/${armstrap_linux_name}/README
-${abs_top_srcdir}/makedeb -n ${armstrap_linux_name} -v ${package_version} -B ${package_build} -s "linux-upstream" -S "kernel" -u ${package_bugreport} -b ${abs_srcdir}/build/${armstrap_linux_name} -p /usr -h ${host_alias} -d "${armstrap_linux}" -l "${armstrap_linux_desc}"
+${abs_top_srcdir}/mkdebian -n ${armstrap_linux_name} -v ${package_version} -B ${package_build} -s "linux-upstream" -S "kernel" -u ${package_bugreport} -b ${abs_srcdir}/build/${armstrap_linux_name} -p /usr -h ${host_alias} -d "${armstrap_linux}" -l "${armstrap_linux_desc}"
 rm -rf ${abs_srcdir}/build
 rm -rf ${abs_srcdir}/debian
