@@ -16,8 +16,11 @@ import re
 import shutil
 import glob
 import time
+import gzip
 
 from logging.handlers import SysLogHandler
+from email.utils import formatdate
+from time import strftime
 
 def writeLog(str):
   logging.warning(str)
@@ -44,7 +47,7 @@ def checkDirectory(Directory):
       if os.path.isdir(Directory):
         return(True)
     return(False)
-  except SystemExit:
+
     pass
   except:
     logging.exception("Caught Exception")
@@ -290,21 +293,296 @@ def kernelVersion(Kernels, Kernel):
     logging.exception("Caught Exception")
     sys.exit(os.EX_SOFTWARE)
 
-# Build virtual packages.
-def makeVirtualPackages(Kernels, Kernel):
+# Generate debian control file
+def genControl(Source, Section, Priority, Name, Email, Package, Version, URL, Suggests, Depends, Conflicts, Architecture, Description, Filename):
   try:
-    if 'version_prefix' in Kernels[Kernel]:
-      version=Kernels[Kernel]['version_prefix'].lower() + Kernel.lower()
-    else:
-      version=Kernel.lower()
-    print(builtins.WorkDir + "/mkvirtual -t " + builtins.WorkDir + " -s " + builtins.WorkDir + " -b " + builtins.SrcURL + " -h armhf -k " + version + " -d " + builtins.SrcDir)
-    return(runCommand( builtins.WorkDir + "/mkvirtual -t " + builtins.WorkDir + " -s " + builtins.WorkDir + " -b " + builtins.SrcURL + " -h arm-linux-gnueabihf -k " + version + " -d " + builtins.SrcDir + "/", verbose = True))
+    text = "Source: " + Source + "\n"
+    text += "Section: " + Section + "\n"
+    text += "Priority: " + Priority + "\n"
+    text += "Maintainer: " + Name + " <" + Email + ">" + "\n"
+    text += "Standards-Version: " + Version + "\n"
+    text += "Homepage: " + URL + "\n\n"
+  
+    text += "Package: " + Package + "\n"
+    text += "Provides: " + Package + ", " + Package+ "-" + Version + "\n"
+    text += "Suggests: " + Suggests + "\n"
+    text += "Depends: " + Depends + "\n"
+    text += "Conflicts: " + Conflicts + "\n"
+    text += "Architecture: " + Architecture + "\n"
+    Description = Description.splitlines()
+    for i in range(0, len(Description)):
+      if i == 0:
+        text += "Description: " + Description[i] + "\n"
+      else:
+        text += " " + Description[i] + "\n"
+    f = open(Filename, 'w')
+    f.write(text)
+    f.close
+    return(True)
   except SystemExit:
     pass
   except:
     logging.exception("Caught Exception")
     sys.exit(os.EX_SOFTWARE)
-      
+
+# Generate a changelog file
+def genChangelog(Package, Version, Build, Copyrights, Filename):
+  try:
+    text = Package +" (" + Version + "-" + Build + ") unstable; urgency=low\n\n"
+    text += "  * " + Package + ", version " + Version + ".\n\n"
+    text += " -- " + Copyrights[0][1] + " <" + Copyrights[0][2] + ">  " + formatdate(localtime=True) + "\n"
+    f = open(Filename, 'w')
+    f.write(text)
+    f.close
+    return(True)
+  except SystemExit:
+    pass
+  except:
+    logging.exception("Caught Exception")
+    sys.exit(os.EX_SOFTWARE)
+
+# Generate a licence file from one of the licences copyright.
+# See /usr/share/debhelper/dh_make/licenses for all valid licences.
+def genLicence(Licence, UpstreamName, Source, Copyrights, Filename):
+  try:
+    if checkFile("/usr/share/debhelper/dh_make/licenses/" + Licence):
+      step = False
+      text = ""
+      f = open("/usr/share/debhelper/dh_make/licenses/" + Licence, 'r')
+      for line in f.readlines():
+        if step:
+          if line.startswith("License:"):
+            step = False
+          else:
+            line = ""
+        else:
+          if line.startswith("Upstream-Name:"):
+            line = "Upstream-Name: " + UpstreamName + "\n"
+          if line.startswith("Source:"):
+            line = "Source: " + Source + "\n"
+          if line.startswith("Copyright:"):
+            for i in range(0, len(Copyrights)):
+              if i == 0:
+                line = "Copyright: Copyright " + Copyrights[i][0] + " " + Copyrights[i][1] + " <" + Copyrights[i][2] + ">\n"
+              else:
+                line = "           Copyright " + Copyrights[i][0] + " " + Copyrights[i][1] + " <" + Copyrights[i][2] + ">\n"
+              step = True    
+        if not line.startswith("#"):
+          if line:
+            text += line
+      f.close()
+      f = open(Filename, 'w')
+      f.write(text)
+      f.close
+      return(True)
+    else:
+      return(False)
+  except SystemExit:
+    pass
+  except:
+    logging.exception("Caught Exception")
+    sys.exit(os.EX_SOFTWARE)
+
+# Create the linux virtual package
+def makeVirtualLinux(Kernels, Kernel):
+  try:
+    SrcURL = builtins.SrcURL
+    Copyright = [[strftime("%Y"), builtins.CpyUsr, builtins.CpyEml]]
+    Section = "kernel"
+    Priority = "optional"
+    PackagerName = builtins.CpyUsr
+    PackagerEmail = builtins.CpyEml
+    imageInfo = getLinuxImageInfo(Kernels, Kernel)
+    headersInfo = getLinuxHeadersInfo(Kernels, Kernel)
+    firmwareInfo = getLinuxFirmwareInfo(Kernels, Kernel)
+    if imageInfo:
+      version = imageInfo[4]
+      pkgname = "armstrap-linux-" + Kernel
+      if makeDirectory(builtins.WorkDir + "/debian"):
+        genLicence("gpl2", pkgname, SrcURL, Copyright, builtins.WorkDir + "/debian/copyright")
+        genChangelog(pkgname, version, "1", Copyright, builtins.WorkDir + "/debian/changelog")
+        depends = "armstrap-linux-" + Kernel + "-image (= " + imageInfo[4] +"), "  + "armstrap-linux-" + Kernel + "-headers (= " + headersInfo[4] +")"
+        genControl(pkgname, Section, Priority, PackagerName, PackagerEmail, pkgname, version, SrcURL, "", depends, "", "any", "armStrap Linux kernel metapackage.\nThis metapackage will always depend on the latest linux\nimage, firmware and headers availables.\n", builtins.WorkDir + "/debian/control")
+        makeDirectory(builtins.WorkDir + "/debian/" +  pkgname + "-" + version + "/DEBIAN")
+        makeDirectory(builtins.WorkDir + "/debian/" +  pkgname + "-" + version + "/usr/share/doc/" +  pkgname)
+        shutil.copy(builtins.WorkDir + "/debian/copyright", builtins.WorkDir + "/debian/" +  pkgname + "-" + version + "/usr/share/doc/" +  pkgname + "/")
+        shutil.copy(builtins.WorkDir + "/debian/changelog", builtins.WorkDir + "/debian/" +  pkgname + "-" + version + "/usr/share/doc/" +  pkgname + "/" + "/changelog.Debian")
+        runCommand("/bin/gzip -n -9 -f " + builtins.WorkDir + "/debian/" +  pkgname + "-" + version + "/usr/share/doc/" +  pkgname + "/" + "/changelog.Debian", verbose = False)
+        makeDirectory(builtins.PkgDir + "/" + Kernel)
+        runCommand("/usr/bin/dpkg-gencontrol -DArchitecture=armhf -p" + pkgname + " -Pdebian/" + pkgname + "-" + version, verbose = False)
+        runCommand("/usr/bin/dpkg --build debian/" + pkgname + "-" + version + " " + builtins.PkgDir + "/" + Kernel + "/", verbose = False)
+        shutil.rmtree(builtins.WorkDir + "/debian")
+        return(True)
+    return(False)
+  except SystemExit:
+    pass
+  except:
+    logging.exception("Caught Exception")
+    sys.exit(os.EX_SOFTWARE)
+
+# Create the linux image virtual package
+def makeVirtualLinuxImage(Kernels, Kernel):
+  try:
+    SrcURL = builtins.SrcURL
+    Copyright = [[strftime("%Y"), builtins.CpyUsr, builtins.CpyEml]]
+    Section = "kernel"
+    Priority = "optional"
+    PackagerName = builtins.CpyUsr
+    PackagerEmail = builtins.CpyEml
+    imageInfo = getLinuxImageInfo(Kernels, Kernel)
+    headersInfo = getLinuxHeadersInfo(Kernels, Kernel)
+    firmwareInfo = getLinuxFirmwareInfo(Kernels, Kernel)
+    if imageInfo:
+      version = imageInfo[4]
+      pkgname = "armstrap-linux-" + Kernel + "-image"
+      if makeDirectory(builtins.WorkDir + "/debian"):
+        genLicence("gpl2", pkgname, SrcURL, Copyright, builtins.WorkDir + "/debian/copyright")
+        genChangelog(pkgname, version, "1", Copyright, builtins.WorkDir + "/debian/changelog")
+        depends = firmwareInfo[1]
+        genControl(pkgname, Section, Priority, PackagerName, PackagerEmail, pkgname, version, SrcURL, "", depends, "", "any", "armStrap Linux kernel image metapackage.\nThis metapackage will always depend on the latest linux\nimage and firmwares availables.\n", builtins.WorkDir + "/debian/control")
+        makeDirectory(builtins.WorkDir + "/debian/" +  pkgname + "-" + version + "/DEBIAN")
+        makeDirectory(builtins.WorkDir + "/debian/" +  pkgname + "-" + version + "/usr/share/doc/" +  pkgname)
+        shutil.copy(builtins.WorkDir + "/debian/copyright", builtins.WorkDir + "/debian/" +  pkgname + "-" + version + "/usr/share/doc/" +  pkgname + "/")
+        shutil.copy(builtins.WorkDir + "/debian/changelog", builtins.WorkDir + "/debian/" +  pkgname + "-" + version + "/usr/share/doc/" +  pkgname + "/" + "/changelog.Debian")
+        runCommand("/bin/gzip -n -9 -f " + builtins.WorkDir + "/debian/" +  pkgname + "-" + version + "/usr/share/doc/" +  pkgname + "/" + "/changelog.Debian", verbose = False)
+        makeDirectory(builtins.PkgDir + "/" + Kernel)
+        runCommand("/usr/bin/dpkg-gencontrol -DArchitecture=armhf -p" + pkgname + " -Pdebian/" + pkgname + "-" + version, verbose = False)
+        runCommand("/usr/bin/dpkg --build debian/" + pkgname + "-" + version + " " + builtins.PkgDir + "/" + Kernel + "/", verbose = False)
+        shutil.rmtree(builtins.WorkDir + "/debian")
+        return(True)
+    return(False)
+  except SystemExit:
+    pass
+  except:
+    logging.exception("Caught Exception")
+    sys.exit(os.EX_SOFTWARE)
+
+# Create the linux headers virtual package
+def makeVirtualLinuxHeaders(Kernels, Kernel):
+  try:
+    SrcURL = builtins.SrcURL
+    Copyright = [[strftime("%Y"), builtins.CpyUsr, builtins.CpyEml]]
+    Section = "kernel"
+    Priority = "optional"
+    PackagerName = builtins.CpyUsr
+    PackagerEmail = builtins.CpyEml
+    imageInfo = getLinuxImageInfo(Kernels, Kernel)
+    headersInfo = getLinuxHeadersInfo(Kernels, Kernel)
+    firmwareInfo = getLinuxFirmwareInfo(Kernels, Kernel)
+    if imageInfo:
+      version = imageInfo[4]
+      pkgname = "armstrap-linux-" + Kernel + "-headers"
+      if makeDirectory(builtins.WorkDir + "/debian"):
+        genLicence("gpl2", pkgname, SrcURL, Copyright, builtins.WorkDir + "/debian/copyright")
+        genChangelog(pkgname, version, "1", Copyright, builtins.WorkDir + "/debian/changelog")
+        depends = headersInfo[1]
+        genControl(pkgname, Section, Priority, PackagerName, PackagerEmail, pkgname, version, SrcURL, "", depends, "", "any", "armStrap Linux kernel headers metapackage.\nThis metapackage will always depend on the latest linux\nheaders availables.\n", builtins.WorkDir + "/debian/control")
+        makeDirectory(builtins.WorkDir + "/debian/" +  pkgname + "-" + version + "/DEBIAN")
+        makeDirectory(builtins.WorkDir + "/debian/" +  pkgname + "-" + version + "/usr/share/doc/" +  pkgname)
+        shutil.copy(builtins.WorkDir + "/debian/copyright", builtins.WorkDir + "/debian/" +  pkgname + "-" + version + "/usr/share/doc/" +  pkgname + "/")
+        shutil.copy(builtins.WorkDir + "/debian/changelog", builtins.WorkDir + "/debian/" +  pkgname + "-" + version + "/usr/share/doc/" +  pkgname + "/" + "/changelog.Debian")
+        runCommand("/bin/gzip -n -9 -f " + builtins.WorkDir + "/debian/" +  pkgname + "-" + version + "/usr/share/doc/" +  pkgname + "/" + "/changelog.Debian", verbose = False)
+        makeDirectory(builtins.PkgDir + "/" + Kernel)
+        runCommand("/usr/bin/dpkg-gencontrol -DArchitecture=armhf -p" + pkgname + " -Pdebian/" + pkgname + "-" + version, verbose = False)
+        runCommand("/usr/bin/dpkg --build debian/" + pkgname + "-" + version + " " + builtins.PkgDir + "/" + Kernel + "/", verbose = False)
+        shutil.rmtree(builtins.WorkDir + "/debian")
+        return(True)
+    return(False)
+  except SystemExit:
+    pass
+  except:
+    logging.exception("Caught Exception")
+    sys.exit(os.EX_SOFTWARE)
+    
+
+    
+# Return information about the linux kernel image package
+def getLinuxImageInfo(Kernels, Kernel):
+  try:
+    if 'version_prefix' in Kernels[Kernel]:
+      version = Kernels[Kernel]['version_prefix'].lower() + Kernel.lower()
+    else:
+      version = Kernel.lower()
+    deb = glob.glob(builtins.SrcDir + "/linux-image-*-" + version + "*_armhf.deb")
+    if deb:
+      deb = deb[0]
+      data = runCommand("/usr/bin/dpkg-deb -I " + deb, verbose = False)
+      if data[0] == 0:
+        for line in data[1].splitlines():
+          if line.strip().startswith("Package:"):
+            fullname = line.split(':')[1].strip()    
+          if line.strip().startswith("Version:"):
+            fullversion = line.split(':')[1].strip()
+        shortname = "linux-image"
+        version = fullversion.split("-")[0]     
+        version_suffix = fullname.replace(shortname + "-" + version + "-", "")
+        version_build =  fullversion.replace(version + "-" + version_suffix + "-", "")
+        return([deb, fullname, shortname, fullversion, version, version_suffix, version_build])
+    return(False)
+  except SystemExit:
+    pass
+  except:
+    logging.exception("Caught Exception")
+    sys.exit(os.EX_SOFTWARE)
+    
+# Return information about the linux headers package
+def getLinuxHeadersInfo(Kernels, Kernel):
+  try:
+    if 'version_prefix' in Kernels[Kernel]:
+      version = Kernels[Kernel]['version_prefix'].lower() + Kernel.lower()
+    else:
+      version = Kernel.lower()
+    deb = glob.glob(builtins.SrcDir + "/linux-headers-*-" + version + "*_armhf.deb")
+    if deb:
+      deb = deb[0]
+      data = runCommand("/usr/bin/dpkg-deb -I " + deb, verbose = False)
+      if data[0] == 0:
+        for line in data[1].splitlines():
+          if line.strip().startswith("Package:"):
+            fullname = line.split(':')[1].strip()    
+          if line.strip().startswith("Version:"):
+            fullversion = line.split(':')[1].strip()
+        shortname = "linux-headers"
+        version = fullversion.split("-")[0]     
+        version_suffix = fullname.replace(shortname + "-" + version + "-", "")
+        version_build =  fullversion.replace(version + "-" + version_suffix + "-", "")
+        return([deb, fullname, shortname, fullversion, version, version_suffix, version_build])
+    return(False)
+  except SystemExit:
+    pass
+  except:
+    logging.exception("Caught Exception")
+    sys.exit(os.EX_SOFTWARE)
+    
+# Return information about the linux firmware package
+def getLinuxFirmwareInfo(Kernels, Kernel):
+  try:
+    if 'version_prefix' in Kernels[Kernel]:
+      version = Kernels[Kernel]['version_prefix'].lower() + Kernel.lower()
+    else:
+      version = Kernel.lower()
+    deb = glob.glob(builtins.SrcDir + "/linux-firmware-image-*-" + version + "*_armhf.deb")
+    if deb:
+      deb = deb[0]
+      data = runCommand("/usr/bin/dpkg-deb -I " + deb, verbose = False)
+      if data[0] == 0:
+        for line in data[1].splitlines():
+          if line.strip().startswith("Package:"):
+            fullname = line.split(':')[1].strip()
+          if line.strip().startswith("Version:"):
+            fullversion = line.split(':')[1].strip()
+        shortname = "linux-firmware-image"
+        version = fullversion.split("-")[0]     
+        version_suffix = fullname.replace(shortname + "-" + version + "-", "")
+        version_build =  fullversion.replace(version + "-" + version_suffix + "-", "")
+        return([deb, fullname, shortname, fullversion, version, version_suffix, version_build])
+    return(False)
+  except SystemExit:
+    pass
+  except:
+    logging.exception("Caught Exception")
+    sys.exit(os.EX_SOFTWARE)
+  
 # Clone / Update and Build kernel Packages.
 def buildKernel(Kernels, Kernel):
   try:
@@ -443,16 +721,21 @@ def buildKernel(Kernels, Kernel):
     # Build the virtual packages
     #
     log = log + "\n#\n# makeVirtualPackages\n#\n\n"
-    result = makeVirtualPackages(Kernels, Kernel)
-    if len(result) > 1:
-      log = log + result[1]
-      if  result[0] != 0:
-        return([False, result[0], log])
-    else:
-      if result[0]:
-        return([False, result[0], log])
-      else:
-        return([False, False, log])
+    if not makeVirtualLinux(Kernels, Kernel):
+      return([False, False, log])
+    log = log + "Linux virtual package created."
+    print("Linux virtual package created.")
+    
+    if not makeVirtualLinuxImage(Kernels, Kernel):
+      return([False, False, log])
+    log = log + "Linux Image virtual package created."
+    print("Linux Image virtual package created.")
+
+      
+    if not makeVirtualLinuxHeaders(Kernels, Kernel):
+      return([False, False, log])
+    log = log + "Linux Headers virtual package created."
+    print("Linux Headers virtual package created.")
     
     #
     # Make sure our package directory exist and move
@@ -463,18 +746,13 @@ def buildKernel(Kernels, Kernel):
       return(False, False, log)
     
     log = log + "\n#\n# movePackages\n#\n\n"
+
     packages = glob.glob(builtins.SrcDir + "/*.deb")
     for package in packages:
       log = log +"Moving " + package + " to " + builtins.PkgDir + "/" + Kernel + "\n"
       print("Moving " + package + " to " + builtins.WorkDir + "/packages/" + Kernel)
       shutil.move(package, builtins.WorkDir + "/packages/" + Kernel)
       
-    packages = glob.glob(builtins.WorkDir + "/*.deb")
-    for package in packages:
-      log = log +"Moving " + package + " to " + builtins.PkgDir + "/" + Kernel + "\n"
-      print("Moving " + package + " to " + builtins.WorkDir + "/packages/" + Kernel)
-      shutil.move(package, builtins.WorkDir + "/packages/" + Kernel)
-
     log = log + "#\n# Kernel build for " + Kernel + " ended at " + time.strftime("%c") + ".\n#\n\n"
     print("Kernel build for " + Kernel + " ended at " + time.strftime("%c") + ".")
       
@@ -502,6 +780,8 @@ def main():
   SrcDir = builtins.SrcDir = WorkDir + "/src"
   PkgDir = builtins.PkgDir = WorkDir + "/packages"
   SrcURL = builtins.SrcURL = "https://github.com/armStrapTools"
+  CpyUsr = builtins.CpyUsr = "Eddy Beaupre (armStrap)"
+  CpyEml = builtins.CpyEml = "eddy@beaupre.biz"
   Threads = builtins.Threads = "12"
   args = sys.argv[1:]
     
@@ -511,7 +791,10 @@ def main():
   parser.add_argument("-w", "--workdir", help="Specify work directory", action="store", default = builtins.WorkDir, metavar=('DIRECTORY'))
   parser.add_argument("-s", "--srcdir", help="Specify sources directory", action="store", default = builtins.SrcDir, metavar=('DIRECTORY'))
   parser.add_argument("-p", "--pkgdir",  help="Specify package directory", action="store", default = builtins.PkgDir, metavar=('DIRECTORY'))
-  parser.add_argument("-t", "--threads", help="Specify number of threads", action="store", default = builtins.Threads, metavar=('DIRECTORY'))
+  parser.add_argument("-t", "--threads", help="Specify number of threads", action="store", default = builtins.Threads, metavar=('THREADS'))
+  parser.add_argument("-u", "--url", help="Specify virtual package info URL", action="store", default = builtins.SrcURL, metavar=('URL'))
+  parser.add_argument("-n", "--name", help="Specify virtual package author name", action="store", default = builtins.CpyUsr, metavar=('NAME'))
+  parser.add_argument("-e", "--email", help="Specify virtual package author email", action="store", default = builtins.CpyEml, metavar=('EMAIL'))
   parser.add_argument("-v", "--version", action='version', version = os.path.basename(sys.argv[0]) + " version " + version)
   args = parser.parse_args()
   
@@ -531,6 +814,12 @@ def main():
       builtins.PkgDir = config['armstrap-kernels']['PackagesDirectory']
     if 'MakeThreads' in config['armstrap-kernels']:
       builtins.Threads = config['armstrap-kernels']['MakeThreads']
+    if 'PackageURL' in config['armstrap-kernels']:
+      builtins.SrcURL = config['armstrap-kernels']['PackageURL']
+    if 'PackageCopyright' in config['armstrap-kernels']:
+      builtins.CpyUsr = config['armstrap-kernels']['PackageCopyright']
+    if 'PackageCopyrightEmail' in config['armstrap-kernels']:
+      builtins.CpyEml = config['armstrap-kernels']['PackageCopyrightEmail']
   
   if args.workdir != WorkDir:
     builtins.WorkDir = args.workdir
@@ -546,6 +835,15 @@ def main():
   
   if args.threads != Threads:
     builtins.Threads = args.threads
+    
+  if args.url != SrcURL:
+    builtins.SrcURL = args.url
+  
+  if args.name != CpyUsr:
+    builtins.CpyUsr = args.name
+    
+  if args.email != CpyEml:
+    builtins.CpyEml = args.email
   
   print("Builder Configuration : " + builtins.Config)
   print("Kernel COnfigurations : " + builtins.Kernels)
@@ -553,9 +851,7 @@ def main():
   print("   Packages Directory : " + builtins.PkgDir)
   print("       Work Directory : " + builtins.WorkDir)
   print("    Number of Threads : " + builtins.Threads)
-  
-  sys.exit(0)
-  
+
   Kernels=readConfig(builtins.Kernels)
   
   if not Kernels:
