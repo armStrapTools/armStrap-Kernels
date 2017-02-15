@@ -216,8 +216,11 @@ def makeCommand(Kernels, Kernel, Command = False, verbose = True, quiet = False)
 # Do a distclean in the kernel sources.
 def kernelClean(Kernels, Kernel):
   try:
-    print("Cleaning sources for kernel " + Kernel + " (" + Kernels[Kernel]['type'] + ")")
-    return(makeCommand(Kernels, Kernel, "distclean"))
+    if checkDirectory(builtins.SrcDir + "/" + Kernels[Kernel]['type']):
+      print("Cleaning sources for kernel " + Kernel + " (" + Kernels[Kernel]['type'] + ")")
+      return(makeCommand(Kernels, Kernel, "distclean"))
+    else:
+      return [0, ""]
   except SystemExit:
     pass
   except:
